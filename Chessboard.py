@@ -1,10 +1,11 @@
 import tkinter as tk
 import chess
 import chess.pgn
-from datetime import datetime
 import collections
 
+from datetime import datetime
 from PIL import ImageTk, Image
+
 
 notation_mapper = {
     0: "a",
@@ -92,6 +93,43 @@ class Chessboard(tk.Frame):
         return f"{notation_mapper[_col]}{8-_row}"
 
     def move(self, cur_row, cur_col):
+        # find the move and play it
+        _move = self.board.find_move((7 - self.highlighted[0]) * 8 + self.highlighted[1], (7 - cur_row) * 8 + cur_col)
+
+        # update the move sheet
+        if self.board.turn:
+            lbl_temp_move_nr = tk.Label(self.frame_moves, text=f"{self.board.fullmove_number}.", width=3)
+            lbl_temp_move_nr.grid(row=self.board.fullmove_number, column=0, sticky="nesw")
+        lbl_temp = tk.Label(self.frame_moves, text=self.board.san(_move), bg="white", bd=1, relief="solid", width=15)
+        lbl_temp.grid(row=self.board.fullmove_number, column=(1 - self.board.turn) + 1, sticky="nesw")
+        self.frame_moves.update_idletasks()
+        self.canvas_moves.config(scrollregion=self.canvas_moves.bbox("all"))
+        self.canvas_moves.yview_scroll(100, "units")  # scrolls all the way down
+
+        self.board.push(_move)
+
+        # update visuals
+        self.update_pieces()
+        self.canvas.delete("highlight")
+        self.highlighted = None
+        # update options
+        self.lbl_color.configure(text=f"{'White to play' if self.board.turn else 'Black to play'}")
+        self.lbl_color_bg.configure(bg=f"{'white' if self.board.turn else 'black'}")
+        self.frame_options.pack_propagate(0)  # disable resizing after making moves and changing labels
+        if outcome := self.board.outcome():
+            if outcome.termination == chess.Termination.CHECKMATE:
+                if outcome.winner:  # white won
+                    self.lbl_gamestatus.configure(text="White wins by Checkmate!")
+                else:  # black won
+                    self.lbl_gamestatus.configure(text="White wins by Checkmate!")
+            # TODO: write something for the other outcomes?
+        else:
+            self.lbl_gamestatus.configure(text=f"{'Move ' + str(self.board.fullmove_number)}")
+        # call handler that a move was made
+        self.handler(self.board.__str__())
+        return True
+
+    def check_move(self, cur_row, cur_col):
         """
         attempts to make a move from the self.highlighted square to the given square
         :param cur_row: target row
@@ -100,48 +138,49 @@ class Chessboard(tk.Frame):
         """
         if self.highlighted:
             if (cur_row, cur_col) in self.highlighted_legal_moves:
-                # find the move and play it
-                _move = self.board.find_move((7-self.highlighted[0])*8+self.highlighted[1], (7-cur_row)*8+cur_col)
-
-                # update the move sheet
-                if self.board.turn:
-                    lbl_temp_move_nr = tk.Label(self.frame_moves, text=f"{self.board.fullmove_number}.", width=3)
-                    lbl_temp_move_nr.grid(row=self.board.fullmove_number, column=0, sticky="nesw")
-                lbl_temp = tk.Label(self.frame_moves, text=self.board.san(_move), bg="white", bd=1, relief="solid", width=15)
-                lbl_temp.grid(row=self.board.fullmove_number, column=(1-self.board.turn)+1, sticky="nesw")
-                self.frame_moves.update_idletasks()
-                self.canvas_moves.config(scrollregion=self.canvas_moves.bbox("all"))
-                self.canvas_moves.yview_scroll(100, "units")  # scrolls all the way down
-
-                self.board.push(_move)
-
-                # update visuals
-                self.update_pieces()
-                self.canvas.delete("highlight")
-                self.highlighted = None
-                # update options
-                self.lbl_color.configure(text=f"{'White to play' if self.board.turn else 'Black to play'}")
-                self.lbl_color_bg.configure(bg=f"{'white' if self.board.turn else 'black'}")
-                self.frame_options.pack_propagate(0)  # disable resizing after making moves and changing labels
-                if outcome := self.board.outcome():
-                    if outcome.termination == chess.Termination.CHECKMATE:
-                        if outcome.winner:  # white won
-                            self.lbl_gamestatus.configure(text="White wins by Checkmate!")
-                        else:  # black won
-                            self.lbl_gamestatus.configure(text="White wins by Checkmate!")
-                    # TODO: write something for the other outcomes?
-                else:
-                    self.lbl_gamestatus.configure(text=f"{'Move ' + str(self.board.fullmove_number)}")
-                # call handler that a move was made
-                self.handler(self.board.__str__())
-                return True
+                self.move(cur_row, cur_col)
         return False
+
+    def move_with_string(self, _str):
+        str1 = self.board.__str__().replace("\n", "").replace(" ", "")
+        str2 = _str.replace("\n", "").replace(" ", "")
+
+        # TODO: catch castling
+        zipped = zip(str1, str2)
+        if len([1 for c1, c2 in zipped if c1 != c2]) == 2:
+            # str1 has to be the previous board! str2 the one with the additional move
+            for i, (c1, c2) in enumerate(zip(str1, str2)):
+                if c1 != c2:
+                    # if there is a difference AND the old position now has no piece there, that means that that's
+                    # the origin position
+                    if c1 == ".":
+                        row2 = i // 8
+                        col2 = i % 8
+                    else:
+                        row1 = i // 8
+                        col1 = i % 8
+        else:  # castling
+            # 2: black long
+            # 6: black short
+            # 58: white long
+            # 62: white short
+            for i, (c1, c2) in enumerate(zip(str1, str2)):
+                if c1 != c2:
+                    if c1.lower() == "k":
+                        row1 = i // 8
+                        col1 = i % 8
+                    if c2.lower() == "k":
+                        row2 = i // 8
+                        col2 = i % 8
+
+        self.highlighted = (row1, col1)
+        self.move(row2, col2)
 
     def click(self, event):
         cur_row = event.y // self.SQUARE_SIZE
         cur_col = event.x // self.SQUARE_SIZE
 
-        if not self.move(cur_row, cur_col):
+        if not self.check_move(cur_row, cur_col):
             self.highlight_square(cur_row, cur_col)
 
     def highlight_square(self, _row, _col):
@@ -211,7 +250,7 @@ class Chessboard(tk.Frame):
         self.dragging = False
         cur_row = event.y // self.SQUARE_SIZE
         cur_col = event.x // self.SQUARE_SIZE
-        if not self.move(cur_row, cur_col):
+        if not self.check_move(cur_row, cur_col):
             self.update_pieces()
 
     def save_pgn(self):
@@ -233,5 +272,5 @@ class Chessboard(tk.Frame):
         game.headers["Date"] = datetime.now().__str__()
 
         print(game, file=open("pgn_file", "w"), end="\n\n")
-        print("saved")
+        print("saved pgn")
 

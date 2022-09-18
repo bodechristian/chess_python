@@ -5,7 +5,7 @@ from Chessboard import Chessboard
 def handle_move(_str):
     pass
     # print("do further evaluation with the position")
-    # print(f"Returned position: \n{_str}")
+    print(f"Returned position: \n{_str}")
 
 
 def main():
